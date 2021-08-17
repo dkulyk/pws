@@ -41,14 +41,14 @@ export class LocalAdapter implements AdapterInterface {
     /**
      * Get all sockets from the namespace.
      */
-    async getSockets(appId: string, onlyLocal = false): Promise<Map<string, WebSocket>> {
+    getSockets(appId: string, onlyLocal = false): Promise<Map<string, WebSocket>> {
         return this.getNamespace(appId).getSockets();
     }
 
     /**
      * Get total sockets count.
      */
-    async getSocketsCount(appId: string, onlyLocal?: boolean): Promise<number> {
+    getSocketsCount(appId: string, onlyLocal?: boolean): Promise<number> {
         return this.getNamespace(appId).getSockets().then(sockets => {
             return sockets.size;
         });
@@ -57,21 +57,21 @@ export class LocalAdapter implements AdapterInterface {
     /**
      * Get all sockets from the namespace.
      */
-    async getChannels(appId: string, onlyLocal = false): Promise<Map<string, Set<string>>> {
+    getChannels(appId: string, onlyLocal = false): Promise<Map<string, Set<string>>> {
         return this.getNamespace(appId).getChannels();
     }
 
     /**
      * Get all the channel sockets associated with a namespace.
      */
-    async getChannelSockets(appId: string, channel: string, onlyLocal = false): Promise<Map<string, WebSocket>> {
+    getChannelSockets(appId: string, channel: string, onlyLocal = false): Promise<Map<string, WebSocket>> {
         return this.getNamespace(appId).getChannelSockets(channel);
     }
 
     /**
      * Get a given channel's total sockets count.
      */
-    async getChannelSocketsCount(appId: string, channel: string, onlyLocal?: boolean): Promise<number> {
+    getChannelSocketsCount(appId: string, channel: string, onlyLocal?: boolean): Promise<number> {
         return this.getNamespace(appId).getChannelSockets(channel).then(sockets => {
             return sockets.size;
         });
@@ -80,14 +80,14 @@ export class LocalAdapter implements AdapterInterface {
     /**
      * Get a given presence channel's members.
      */
-    async getChannelMembers(appId: string, channel: string, onlyLocal = false): Promise<Map<string, PresenceMember>> {
+    getChannelMembers(appId: string, channel: string, onlyLocal = false): Promise<Map<string, PresenceMember>> {
         return this.getNamespace(appId).getChannelMembers(channel);
     }
 
     /**
      * Get a given presence channel's members count
      */
-    async getChannelMembersCount(appId: string, channel: string, onlyLocal?: boolean): Promise<number> {
+    getChannelMembersCount(appId: string, channel: string, onlyLocal?: boolean): Promise<number> {
         return this.getNamespace(appId).getChannelMembers(channel).then(members => {
             return members.size;
         });
@@ -96,7 +96,7 @@ export class LocalAdapter implements AdapterInterface {
     /**
      * Check if a given connection ID exists in a channel.
      */
-    async isInChannel(appId: string, channel: string, wsId: string, onlyLocal?: boolean): Promise<boolean> {
+    isInChannel(appId: string, channel: string, wsId: string, onlyLocal?: boolean): Promise<boolean> {
         return this.getNamespace(appId).isInChannel(wsId, channel);
     }
 

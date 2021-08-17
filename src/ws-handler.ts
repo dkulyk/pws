@@ -48,7 +48,7 @@ export class WsHandler {
     /**
      * Handle a new open connection.
      */
-    onOpen(ws: WebSocket): any {
+    async onOpen(ws: WebSocket): Promise<any> {
         if (this.server.closing) {
             ws.send(JSON.stringify({
                 event: 'pusher:error',
@@ -65,66 +65,62 @@ export class WsHandler {
         ws.subscribedChannels = new Set();
         ws.presence = new Map<string, PresenceMember>();
 
-        this.checkForValidApp(ws).then(validApp => {
-            if (! validApp) {
-                ws.send(JSON.stringify({
-                    event: 'pusher:error',
-                    data: {
-                        code: 4001,
-                        message: `App key ${ws.appKey} does not exist.`,
-                    },
-                }));
+        const validApp = await this.checkForValidApp(ws);
 
-                return ws.close();
-            }
+        if (! validApp) {
+            ws.send(JSON.stringify({
+                event: 'pusher:error',
+                data: {
+                    code: 4001,
+                    message: `App key ${ws.appKey} does not exist.`,
+                },
+            }));
 
-            ws.app = validApp;
+            return ws.close();
+        }
 
-            this.checkIfAppIsEnabled(ws).then(enabled => {
-                if (! enabled) {
-                    ws.send(JSON.stringify({
-                        event: 'pusher:error',
-                        data: {
-                            code: 4003,
-                            message: 'The app is not enabled.',
-                        },
-                    }));
+        ws.app = validApp;
 
-                    return ws.close();
-                }
+        if (! await this.checkIfAppIsEnabled(ws)) {
+            ws.send(JSON.stringify({
+                event: 'pusher:error',
+                data: {
+                    code: 4003,
+                    message: 'The app is not enabled.',
+                },
+            }));
 
-                this.checkAppConnectionLimit(ws).then(canConnect => {
-                    if (! canConnect) {
-                        ws.send(JSON.stringify({
-                            event: 'pusher:error',
-                            data: {
-                                code: 4100,
-                                message: 'The current concurrent connections quota has been reached.',
-                            },
-                        }));
+            return ws.close();
+        }
 
-                        ws.close();
-                    } else {
-                        this.server.adapter.getNamespace(ws.app.id).addSocket(ws);
+        if (! await this.checkAppConnectionLimit(ws)) {
+            ws.send(JSON.stringify({
+                event: 'pusher:error',
+                data: {
+                    code: 4100,
+                    message: 'The current concurrent connections quota has been reached.',
+                },
+            }));
 
-                        let broadcastMessage = {
-                            event: 'pusher:connection_established',
-                            data: JSON.stringify({
-                                socket_id: ws.id,
-                                activity_timeout: 30,
-                            }),
-                        };
+            ws.close();
+        } else {
+            await this.server.adapter.getNamespace(ws.app.id).addSocket(ws);
 
-                        ws.send(JSON.stringify(broadcastMessage));
+            let broadcastMessage = {
+                event: 'pusher:connection_established',
+                data: JSON.stringify({
+                    socket_id: ws.id,
+                    activity_timeout: 30,
+                }),
+            };
 
-                        this.updateTimeout(ws);
+            ws.send(JSON.stringify(broadcastMessage));
 
-                        this.server.metricsManager.markNewConnection(ws);
-                        this.server.metricsManager.markWsMessageSent(ws.app.id, broadcastMessage);
-                    }
-                });
-            });
-        });
+            this.updateTimeout(ws);
+
+            this.server.metricsManager.markNewConnection(ws);
+            this.server.metricsManager.markWsMessageSent(ws.app.id, broadcastMessage);
+        }
     }
 
     /**
@@ -160,15 +156,16 @@ export class WsHandler {
     /**
      * Handle the event of the client closing the connection.
      */
-    onClose(ws: WebSocket, code: number, message: any): any {
-        this.unsubscribeFromAllChannels(ws).then(() => {
-            if (ws.app) {
-                this.server.adapter.getNamespace(ws.app.id).removeSocket(ws.id);
-                this.server.metricsManager.markDisconnection(ws);
-            }
+    async onClose(ws: WebSocket, code: number, message: any): Promise<any> {
+        await this.unsubscribeFromAllChannels(ws);
 
-            this.clearTimeout(ws);
-        });
+        if (ws.app) {
+            this.server.adapter.getNamespace(ws.app.id).removeSocket(ws.id);
+            this.server.metricsManager.markDisconnection(ws);
+        }
+
+        this.clearTimeout(ws);
+
     }
 
     /**

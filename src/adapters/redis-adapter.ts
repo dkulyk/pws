@@ -138,7 +138,7 @@ export class RedisAdapter extends LocalAdapter {
         const localSockets = await super.getSockets(appId, true);
 
         if (onlyLocal) {
-            return Promise.resolve(localSockets);
+            return localSockets;
         }
 
         const numSub = await this.getNumSub();
@@ -851,7 +851,7 @@ export class RedisAdapter extends LocalAdapter {
                 )
             ).then((values: any[]) => {
                 return values.reduce((numSub, value) => {
-                    return numSub += parseInt(value[1], 10);
+                    return numSub + parseInt(value[1], 10);
                 }, 0);
             });
         } else {

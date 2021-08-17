@@ -27,7 +27,7 @@ export class Utils {
             element = typeof element === 'string' ? element : JSON.stringify(element);
 
             try {
-                return totalBytes += Buffer.byteLength(element, 'utf8');
+                return totalBytes + Buffer.byteLength(element, 'utf8');
             } catch (e) {
                 return totalBytes;
             }

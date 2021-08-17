@@ -249,34 +249,32 @@ export class Server {
             Log.info('⚡ Initializing the Websocket listeners and channels...\n');
         }
 
-        this.configureWebsockets(server).then(server => {
+        server = await this.configureWebsockets(server)
+        if (this.options.debug) {
+            Log.info('⚡ Initializing the HTTP webserver...\n');
+        }
+
+        server = await this.configureHttp(server)
+        server.listen('0.0.0.0', this.options.port, serverProcess => {
+            this.serverProcess = serverProcess;
+
+            Log.success('🎉 Server is up and running!\n');
+
             if (this.options.debug) {
-                Log.info('⚡ Initializing the HTTP webserver...\n');
+                Log.success(`📡 The Websockets server is available at 127.0.0.1:${this.options.port}\n`);
+                Log.success(`🔗 The HTTP API server is available at http://127.0.0.1:${this.options.port}\n`);
             }
 
-            this.configureHttp(server).then(server => {
-                server.listen('0.0.0.0', this.options.port, serverProcess => {
-                    this.serverProcess = serverProcess;
-
-                    Log.success('🎉 Server is up and running!\n');
-
-                    if (this.options.debug) {
-                        Log.success(`📡 The Websockets server is available at 127.0.0.1:${this.options.port}\n`);
-                        Log.success(`🔗 The HTTP API server is available at http://127.0.0.1:${this.options.port}\n`);
-                    }
-
-                    if (callback) {
-                        callback(this);
-                    }
-                });
-            });
+            if (callback) {
+                callback(this);
+            }
         });
     }
 
     /**
      * Stop the server.
      */
-    stop(): Promise<void> {
+    async stop(): Promise<void> {
         this.closing = true;
 
         if (this.options.debug) {
@@ -284,99 +282,93 @@ export class Server {
             Log.warning('⚡ The server is closing and signaling the existing connections to terminate.\n');
         }
 
-        return this.wsHandler.closeAllLocalSockets().then(() => {
-            return Promise.all([
-                this.metricsManager.clear(),
-                this.queueManager.clear(),
-            ]).then(() => {
-                if (this.options.debug) {
-                    Log.warning('⚡ All sockets were closed. Now closing the server.');
-                }
+        await this.wsHandler.closeAllLocalSockets();
 
-                uWS.us_listen_socket_close(this.serverProcess);
+        await Promise.all([
+            this.metricsManager.clear(),
+            this.queueManager.clear(),
+        ])
 
-                return new Promise(resolve => setTimeout(resolve, 3000));
-            });
-        });
+        if (this.options.debug) {
+            Log.warning('⚡ All sockets were closed. Now closing the server.');
+        }
+
+        uWS.us_listen_socket_close(this.serverProcess);
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     /**
      * Configure the WebSocket logic.
      */
-    protected configureWebsockets(server: TemplatedApp): Promise<TemplatedApp> {
-        return new Promise(resolve => {
-            server = server.ws('/app/:id', {
-                idleTimeout: 120, // According to protocol
-                maxBackpressure: 1024 * 1024,
-                maxPayloadLength: 100 * 1024 * 1024, // 100 MB
-                message: (ws: WebSocket, message: any, isBinary: boolean) => this.wsHandler.onMessage(ws, message, isBinary),
-                open: (ws: WebSocket) => this.wsHandler.onOpen(ws),
-                close: (ws: WebSocket, code: number, message: any) => this.wsHandler.onClose(ws, code, message),
-                upgrade: (res: HttpResponse, req: HttpRequest, context) => this.wsHandler.handleUpgrade(res, req, context),
-            });
-
-            resolve(server);
+    protected async configureWebsockets(server: TemplatedApp): Promise<TemplatedApp> {
+        return server.ws('/app/:id', {
+            idleTimeout: 120, // According to protocol
+            maxBackpressure: 1024 * 1024,
+            maxPayloadLength: 100 * 1024 * 1024, // 100 MB
+            message: (ws: WebSocket, message: any, isBinary: boolean) => this.wsHandler.onMessage(ws, message, isBinary),
+            open: (ws: WebSocket) => this.wsHandler.onOpen(ws),
+            close: (ws: WebSocket, code: number, message: any) => this.wsHandler.onClose(ws, code, message),
+            upgrade: (res: HttpResponse, req: HttpRequest, context) => this.wsHandler.handleUpgrade(res, req, context),
         });
     }
 
     /**
      * Configure the HTTP REST API server.
      */
-    protected configureHttp(server: TemplatedApp): Promise<TemplatedApp> {
-        return new Promise(resolve => {
-            server.get('/', (res, req) => this.httpHandler.healthCheck(res));
-            server.get('/usage', (res, req) => this.httpHandler.usage(res));
+    protected async configureHttp(server: TemplatedApp): Promise<TemplatedApp> {
+        server.get('/', (res, req) => this.httpHandler.healthCheck(res));
+        server.get('/usage', (res, req) => this.httpHandler.usage(res));
 
-            if (this.options.metrics.enabled) {
-                server.get('/metrics', (res, req) => {
-                    res.query = queryString.parse(req.getQuery());
-
-                    return this.httpHandler.metrics(res);
-                });
-            }
-
-            server.get('/apps/:appId/channels', (res, req) => {
-                res.params = { appId: req.getParameter(0) };
+        if (this.options.metrics.enabled) {
+            server.get('/metrics', (res, req) => {
                 res.query = queryString.parse(req.getQuery());
-                res.method = req.getMethod().toUpperCase();
-                res.url = req.getUrl();
 
-                return this.httpHandler.channels(res);
+                return this.httpHandler.metrics(res);
             });
+        }
 
-            server.get('/apps/:appId/channels/:channelName', (res, req) => {
-                res.params = { appId: req.getParameter(0), channel: req.getParameter(1) };
-                res.query = queryString.parse(req.getQuery());
-                res.method = req.getMethod().toUpperCase();
-                res.url = req.getUrl();
+        server.get('/apps/:appId/channels', (res, req) => {
+            res.params = { appId: req.getParameter(0) };
+            res.query = queryString.parse(req.getQuery());
+            res.method = req.getMethod().toUpperCase();
+            res.url = req.getUrl();
 
-                return this.httpHandler.channel(res);
-            });
-
-            server.get('/apps/:appId/channels/:channelName/users', (res, req) => {
-                res.params = { appId: req.getParameter(0), channel: req.getParameter(1) };
-                res.query = queryString.parse(req.getQuery());
-                res.method = req.getMethod().toUpperCase();
-                res.url = req.getUrl();
-
-                return this.httpHandler.channelUsers(res);
-            });
-
-            server.post('/apps/:appId/events', (res, req) => {
-                res.params = { appId: req.getParameter(0) };
-                res.query = queryString.parse(req.getQuery());
-                res.method = req.getMethod().toUpperCase();
-                res.url = req.getUrl();
-
-                return this.httpHandler.events(res);
-            });
-
-            resolve(server);
+            return this.httpHandler.channels(res);
         });
+
+        server.get('/apps/:appId/channels/:channelName', (res, req) => {
+            res.params = { appId: req.getParameter(0), channel: req.getParameter(1) };
+            res.query = queryString.parse(req.getQuery());
+            res.method = req.getMethod().toUpperCase();
+            res.url = req.getUrl();
+
+            return this.httpHandler.channel(res);
+        });
+
+        server.get('/apps/:appId/channels/:channelName/users', (res, req) => {
+            res.params = { appId: req.getParameter(0), channel: req.getParameter(1) };
+            res.query = queryString.parse(req.getQuery());
+            res.method = req.getMethod().toUpperCase();
+            res.url = req.getUrl();
+
+            return this.httpHandler.channelUsers(res);
+        });
+
+        server.post('/apps/:appId/events', (res, req) => {
+            res.params = { appId: req.getParameter(0) };
+            res.query = queryString.parse(req.getQuery());
+            res.method = req.getMethod().toUpperCase();
+            res.url = req.getUrl();
+
+            return this.httpHandler.events(res);
+        });
+
+        return server
     }
 
     /**
-     * Wether the server should start in SSL mode.
+     * Whether the server should start in SSL mode.
      */
     protected shouldConfigureSsl(): boolean {
         return this.options.ssl.certPath !== '' ||
