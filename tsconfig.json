@@ -9,6 +9,7 @@
     "noImplicitAny": false,
     "preserveConstEnums": true,
     "removeComments": true,
+    "experimentalDecorators": true,
     "typeRoots": [
       "node_modules/@types"
     ],

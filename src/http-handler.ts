@@ -1,8 +1,14 @@
-import async from 'async';
 import { HttpResponse } from 'uWebSockets.js';
-import { Server } from './server';
 import { Utils } from './utils';
 import { Log } from './log';
+import {
+    appMiddleware,
+    BaseHttpHandler,
+    broadcastEventRateLimitingMiddleware,
+    corsMiddleware, jsonBodyMiddleware,
+    Middlewares,
+    readRateLimitingMiddleware
+} from "./http";
 
 const v8 = require('v8');
 
@@ -12,26 +18,18 @@ export interface ChannelResponse {
     occupied: boolean;
 }
 
-export class HttpHandler {
-    /**
-     * Initialize the HTTP handler.
-     */
-     constructor(protected server: Server) {
-        //
-    }
-
+export class HttpHandler extends BaseHttpHandler {
+    @Middlewares([
+        corsMiddleware
+    ])
     healthCheck(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-        ]).then(res => {
             res.writeStatus('200 OK').end('OK');
-        });
     }
 
+    @Middlewares([
+        corsMiddleware
+    ])
     usage(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-        ]).then(res => {
             let { rss, heapTotal, external, arrayBuffers } = process.memoryUsage();
 
             let totalSize = v8.getHeapStatistics().total_available_size;
@@ -47,13 +45,12 @@ export class HttpHandler {
                     percent: percentUsage,
                 },
             }));
-        });
     }
 
+    @Middlewares([
+        corsMiddleware
+    ])
     metrics(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-        ]).then(res => {
             let metricsResponse = metrics => {
                 res.writeStatus('200 OK').end(res.query.json ? JSON.stringify(metrics) : metrics);
             };
@@ -73,16 +70,14 @@ export class HttpHandler {
                     .then(metricsResponse)
                     .catch(handleError);
             }
-        });
     }
 
+    @Middlewares([
+        corsMiddleware,
+        appMiddleware,
+        readRateLimitingMiddleware
+    ])
     channels(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-            this.appMiddleware,
-            this.authMiddleware,
-            this.readRateLimitingMiddleware,
-        ]).then(res => {
             this.server.adapter.getChannels(res.params.appId).then(channels => {
                 let response: { [channel: string]: ChannelResponse } = [...channels].reduce((channels, [channel, connections]) => {
                     if (connections.size === 0) {
@@ -108,17 +103,15 @@ export class HttpHandler {
                 this.server.metricsManager.markApiMessage(res.params.appId, {}, broadcastMessage);
 
                 res.writeStatus('200 OK').end(JSON.stringify(broadcastMessage));
-            });
         });
     }
 
+    @Middlewares([
+        corsMiddleware,
+        appMiddleware,
+        readRateLimitingMiddleware,
+    ])
     channel(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-            this.appMiddleware,
-            this.authMiddleware,
-            this.readRateLimitingMiddleware,
-        ]).then(res => {
             let response: ChannelResponse;
 
             this.server.adapter.getChannelSocketsCount(res.params.appId, res.params.channel).then(socketsCount => {
@@ -161,17 +154,15 @@ export class HttpHandler {
                 Log.error(err);
 
                 return this.serverErrorResponse(res, 'A server error has occured.');
-            });
         });
     }
 
+    @Middlewares([
+        corsMiddleware,
+        appMiddleware,
+        readRateLimitingMiddleware,
+    ])
     channelUsers(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.corsMiddleware,
-            this.appMiddleware,
-            this.authMiddleware,
-            this.readRateLimitingMiddleware,
-        ]).then(res => {
             if (! res.params.channel.startsWith('presence-')) {
                 return this.badResponse(res, 'The channel must be a presence channel.');
             }
@@ -184,18 +175,16 @@ export class HttpHandler {
                 this.server.metricsManager.markApiMessage(res.params.appId, {}, broadcastMessage);
 
                 res.writeStatus('200 OK').end(JSON.stringify(broadcastMessage));
-            });
         });
     }
 
+    @Middlewares([
+        jsonBodyMiddleware,
+        corsMiddleware,
+        appMiddleware,
+        broadcastEventRateLimitingMiddleware,
+    ])
     events(res: HttpResponse) {
-        this.attachMiddleware(res, [
-            this.jsonBodyMiddleware,
-            this.corsMiddleware,
-            this.appMiddleware,
-            this.authMiddleware,
-            this.broadcastEventRateLimitingMiddleware,
-        ]).then(res => {
             let message = res.body;
 
             if (
@@ -238,220 +227,5 @@ export class HttpHandler {
             res.writeStatus('200 OK').end(JSON.stringify({
                 ok: true,
             }));
-        });
-    }
-
-    protected badResponse(res: HttpResponse, message: string) {
-        return res.writeStatus('400 Invalid Request').end(JSON.stringify({
-            error: message,
-            code: 400,
-        }));
-    }
-
-    protected notFoundResponse(res: HttpResponse, message: string) {
-        return res.writeStatus('404 Not Found').end(JSON.stringify({
-            error: message,
-            code: 404
-        }));
-    }
-
-    protected unauthorizedResponse(res: HttpResponse, message: string) {
-        return res.writeStatus('401 Unauthorized').end(JSON.stringify({
-            error: message,
-            code: 401,
-        }));
-    }
-
-    protected entityTooLargeResponse(res: HttpResponse, message: string) {
-        return res.writeStatus('413 Payload Too Large').end(JSON.stringify({
-            error: message,
-            code: 413,
-        }));
-    }
-
-    protected tooManyRequestsResponse(res: HttpResponse) {
-        return res.writeStatus('429 Too Many Requests').end(JSON.stringify({
-            error: 'Too many requests.',
-            code: 429,
-        }));
-    }
-
-    protected serverErrorResponse(res: HttpResponse, message: string) {
-        return res.writeStatus('500 Internal Server Error').end(JSON.stringify({
-            error: message,
-            code: 500,
-        }));
-    }
-
-    protected jsonBodyMiddleware(res: HttpResponse, next: CallableFunction): any {
-        this.readJson(res, (body, rawBody) => {
-            res.body = body;
-            res.rawBody = rawBody;
-
-            let requestSizeInMb = Utils.dataToMegabytes(rawBody);
-
-            if (requestSizeInMb > this.server.options.httpApi.requestLimitInMb) {
-                return this.entityTooLargeResponse(res, 'The payload size is too big.');
-            }
-
-            next(null, res);
-        }, err => {
-            return this.badResponse(res, 'The received data is incorrect.');
-        });
-    }
-
-    protected corsMiddleware(res: HttpResponse, next: CallableFunction): any {
-        res.writeHeader('Access-Control-Allow-Origin', this.server.options.cors.origin.join(', '));
-        res.writeHeader('Access-Control-Allow-Methods', this.server.options.cors.methods.join(', '));
-        res.writeHeader('Access-Control-Allow-Headers', this.server.options.cors.allowedHeaders.join(', '));
-
-        next(null, res);
-    }
-
-    protected appMiddleware(res: HttpResponse, next: CallableFunction): any {
-        return this.server.appManager.findById(res.params.appId).then(validApp => {
-            if (! validApp) {
-                return this.notFoundResponse(res, `The app ${res.params.appId} could not be found.`);
-            }
-
-            res.app = validApp;
-
-            next(null, res);
-        });
-    }
-
-    protected authMiddleware(res: HttpResponse, next: CallableFunction): any {
-        this.signatureIsValid(res).then(valid => {
-            if (valid) {
-                return next(null, res);
-            }
-
-            return this.unauthorizedResponse(res, 'The secret authentication failed');
-        });
-    }
-
-    protected readRateLimitingMiddleware(res: HttpResponse, next: CallableFunction): any {
-        this.server.rateLimiter.consumeReadRequestsPoints(1, res.app).then(response => {
-            if (response.canContinue) {
-                for (let header in response.headers) {
-                    res.writeHeader(header, '' + response.headers[header]);
-                }
-
-                return next(null, res);
-            }
-
-            this.tooManyRequestsResponse(res);
-        });
-    }
-
-    protected broadcastEventRateLimitingMiddleware(res: HttpResponse, next: CallableFunction): any {
-        let channels = res.body.channels || [res.body.channel];
-
-        this.server.rateLimiter.consumeBackendEventPoints(Math.max(channels.length, 1), res.app).then(response => {
-            if (response.canContinue) {
-                for (let header in response.headers) {
-                    res.writeHeader(header, '' + response.headers[header]);
-                }
-
-                return next(null, res);
-            }
-
-            this.tooManyRequestsResponse(res);
-        });
-    }
-
-    protected attachMiddleware(res: HttpResponse, functions: any[]): Promise<HttpResponse> {
-        return new Promise((resolve, reject) => {
-            let waterfallInit = callback => callback(null, res);
-
-            let abortHandlerMiddleware = (res, callback) => {
-                res.onAborted(() => {
-                    Log.warning({ message: 'Aborted request.', res });
-                    this.serverErrorResponse(res, 'Aborted request.');
-                });
-
-                callback(null, res);
-            };
-
-            async.waterfall([
-                waterfallInit.bind(this),
-                abortHandlerMiddleware.bind(this),
-                ...functions.map(fn => fn.bind(this)),
-            ], (err, res) => {
-                if (err) {
-                    this.serverErrorResponse(res, 'A server error has occured.');
-                    Log.error(err);
-
-                    return reject({ res, err });
-                }
-
-                resolve(res);
-            });
-        });
-    }
-
-    /**
-     * Read the JSON content of a request.
-     */
-    protected readJson(res: HttpResponse, cb: CallableFunction, err: any) {
-        let buffer;
-
-        res.onData((ab, isLast) => {
-            let chunk = Buffer.from(ab);
-
-            if (isLast) {
-                let json;
-                let raw;
-
-                if (buffer) {
-                    try {
-                        // @ts-ignore
-                        json = JSON.parse(Buffer.concat([buffer, chunk]));
-                    } catch (e) {
-                        res.close();
-                        return;
-                    }
-
-                    raw = Buffer.concat([buffer, chunk]).toString();
-
-                    cb(json, raw);
-                } else {
-                    try {
-                        // @ts-ignore
-                        json = JSON.parse(chunk);
-                        raw = chunk.toString();
-                    } catch (e) {
-                        res.close();
-                        return;
-                    }
-
-                    cb(json, raw);
-                }
-            } else {
-                if (buffer) {
-                    buffer = Buffer.concat([buffer, chunk]);
-                } else {
-                    buffer = Buffer.concat([chunk]);
-                }
-            }
-        });
-
-        res.onAborted(err);
-    }
-
-    /**
-     * Check is an incoming request can access the api.
-     */
-     protected signatureIsValid(res: HttpResponse): Promise<boolean> {
-        return this.getSignedToken(res).then(token => {
-            return token === res.query.auth_signature;
-        });
-    }
-
-    /**
-     * Get the signed token from the given request.
-     */
-    protected getSignedToken(res: HttpResponse): Promise<string> {
-        return Promise.resolve(res.app.signingTokenFromRequest(res));
     }
 }
