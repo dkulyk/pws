@@ -614,8 +614,7 @@ export class WsHandler {
         this.clearTimeout(ws);
 
         ws.timeout = setTimeout(() => {
-            ws.timeout = setTimeout(async () => {
-                await this.unsubscribeFromAllChannels(ws)
+            ws.timeout = setTimeout(() => {
                 ws.close();
             }, 30_000);
 
