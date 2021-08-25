@@ -22,25 +22,24 @@ export class Namespace {
     /**
      * Get all sockets from this namespace.
      */
-    getSockets(): Promise<Map<string, WebSocket>> {
-        return Promise.resolve(this.sockets);
+    async getSockets(): Promise<Map<string, WebSocket>> {
+        return this.sockets;
     }
 
     /**
      * Add a new socket to the namespace.
      */
-    addSocket(ws: WebSocket): Promise<boolean> {
-        return new Promise(resolve => {
-            this.sockets.set(ws.id, ws);
-            resolve(true);
-        });
+    async addSocket(ws: WebSocket): Promise<boolean> {
+        this.sockets.set(ws.id, ws);
+
+        return true;
     }
 
     /**
      * Remove a socket from the namespace.
      */
     async removeSocket(wsId: string): Promise<boolean> {
-        for (let channel of this.channels.keys()){
+        for (let channel of this.channels.keys()) {
             await this.removeFromChannel(wsId, channel);
         }
 
@@ -51,16 +50,12 @@ export class Namespace {
      * Add a socket ID to the channel identifier.
      * Return the total number of connections after the connection.
      */
-    addToChannel(ws: WebSocket, channel: string): Promise<number> {
-        return new Promise(resolve => {
-            if (! this.channels.has(channel)) {
-                this.channels.set(channel, new Set);
-            }
+    async addToChannel(ws: WebSocket, channel: string): Promise<number> {
+        if (! this.channels.has(channel)) {
+            this.channels.set(channel, new Set);
+        }
 
-            this.channels.get(channel).add(ws.id);
-
-            resolve(this.channels.get(channel).size);
-        });
+        return this.channels.get(channel).add(ws.id).size;
     }
 
     /**
@@ -68,60 +63,56 @@ export class Namespace {
      * Return the total number of connections remaining to the channel.
      */
     async removeFromChannel(wsId: string, channel: string): Promise<number> {
-        return new Promise(resolve => {
-            if (this.channels.has(channel)) {
-                this.channels.get(channel).delete(wsId);
+        if (this.channels.has(channel)) {
+            this.channels.get(channel).delete(wsId);
 
-                if (this.channels.get(channel).size === 0) {
-                    this.channels.delete(channel);
-                }
+            const size = this.channels.get(channel).size;
+
+            if (size === 0) {
+                this.channels.delete(channel);
             }
 
-            resolve(this.channels.has(channel) ? this.channels.get(channel).size : 0);
-        });
+            return size;
+        }
+
+        return 0;
     }
 
     /**
      * Check if a socket ID is joined to the channel.
      */
-    isInChannel(wsId: string, channel: string): Promise<boolean> {
-        return new Promise(resolve => {
-            if (! this.channels.has(channel)) {
-                return resolve(false);
-            }
+    async isInChannel(wsId: string, channel: string): Promise<boolean> {
+        if (! this.channels.has(channel)) {
+            return false;
+        }
 
-            resolve(this.channels.get(channel).has(wsId));
-        });
+        return this.channels.get(channel).has(wsId);
     }
 
     /**
      * Get the list of channels with the websocket IDs.
      */
-    getChannels(): Promise<Map<string, Set<string>>> {
-        return Promise.resolve(this.channels);
+    async getChannels(): Promise<Map<string, Set<string>>> {
+        return this.channels;
     }
 
     /**
      * Get all the channel sockets associated with this namespace.
      */
-    getChannelSockets(channel: string): Promise<Map<string, WebSocket>> {
-        return new Promise(resolve => {
+    async getChannelSockets(channel: string): Promise<Map<string, WebSocket>> {
             if (! this.channels.has(channel)) {
-                return resolve(new Map<string, WebSocket>());
+                return new Map<string, WebSocket>();
             }
 
             let wsIds = this.channels.get(channel);
 
-            resolve(
-                Array.from(wsIds).reduce((sockets, wsId) => {
+           return Array.from(wsIds).reduce((sockets, wsId) => {
                     if (! this.sockets.has(wsId)) {
                         return sockets;
                     }
 
                     return sockets.set(wsId, this.sockets.get(wsId));
-                }, new Map<string, WebSocket>())
-            );
-        });
+                }, new Map<string, WebSocket>());
     }
 
     /**

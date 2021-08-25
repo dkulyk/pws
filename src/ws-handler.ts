@@ -425,6 +425,10 @@ export class WsHandler {
 
             ws.subscribedChannels.delete(channel);
 
+            if (this.server.options.debug) {
+                Log.info(`${ws.app.id} ${ws.id} left ${channel}`);
+            }
+
             this.server.adapter.getNamespace(ws.app.id).removeFromChannel(ws.id, channel).then(remainingConnections => {
                 if (remainingConnections === 0) {
                     this.server.webhookSender.sendChannelVacated(ws.app, channel);
