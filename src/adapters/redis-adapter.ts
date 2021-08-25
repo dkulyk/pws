@@ -505,7 +505,7 @@ export class RedisAdapter extends LocalAdapter {
     /**
      * Send a message to a namespace and channel.
      */
-    send(appId: string, channel: string, data: string, exceptingId: string|null = null): any {
+    send(appId: string, channel: string, data: any, exceptingId: string|null = null): any {
         this.pubClient.publish(this.channel, JSON.stringify({
             uuid: this.uuid,
             appId,

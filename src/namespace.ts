@@ -65,8 +65,6 @@ export class Namespace {
      */
     async removeFromChannel(wsId: string, channel: string): Promise<number> {
 
-        Log.info(`channel(${channel}):${this.channels.has(channel) ? '1' : '0'} socket(${wsId}):${this.channels.get(channel)?.has(wsId) ? '1' : '0'}`);
-
         if (this.channels.has(channel)) {
             this.channels.get(channel).delete(wsId);
 

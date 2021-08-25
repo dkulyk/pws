@@ -103,7 +103,7 @@ export class LocalAdapter implements AdapterInterface {
     /**
      * Send a message to a namespace and channel.
      */
-    send(appId: string, channel: string, data: string, exceptingId: string|null = null): any {
+    send(appId: string, channel: string, data: any, exceptingId: string|null = null): any {
         let nsp = this.namespaces.get(appId);
 
         if (! nsp) {
@@ -116,9 +116,7 @@ export class LocalAdapter implements AdapterInterface {
                     return;
                 }
 
-                ws.send(data);
-
-                this.server.metricsManager.markWsMessageSent(ws.app.id, data);
+                ws.sendJson(data);
             });
         });
     }

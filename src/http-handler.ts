@@ -226,11 +226,11 @@ export class HttpHandler {
             }
 
             channels.forEach(channel => {
-                this.server.adapter.send(res.params.appId, channel, JSON.stringify({
+                this.server.adapter.send(res.params.appId, channel, {
                     event: message.name,
                     channel,
                     data: message.data,
-                }), message.socket_id);
+                }, message.socket_id);
             });
 
             this.server.metricsManager.markApiMessage(res.params.appId, message, {ok: true});

@@ -50,13 +50,13 @@ export class WsHandler {
      */
     onOpen(ws: WebSocket): any {
         if (this.server.closing) {
-            ws.sendJson({
+            ws.send(JSON.stringify({
                 event: 'pusher:error',
                 data: {
                     code: 4200,
                     message: 'Server is closing. Please reconnect shortly.',
                 },
-            });
+            }));
 
             return ws.end();
         }
@@ -65,28 +65,27 @@ export class WsHandler {
         ws.subscribedChannels = new Set();
         ws.presence = new Map<string, PresenceMember>();
 
-        ws.sendJson = (data) => {
-            if (ws.send(JSON.stringify(data))) {
-                this.updateTimeout(ws);
-            }
-
-            this.server.metricsManager.markWsMessageSent(ws.app.id, data);
-        }
-
         this.checkForValidApp(ws).then(validApp => {
             if (! validApp) {
-                ws.sendJson({
+                ws.send(JSON.stringify({
                     event: 'pusher:error',
                     data: {
                         code: 4001,
                         message: `App key ${ws.appKey} does not exist.`,
                     },
-                });
+                }));
 
                 return ws.end();
             }
 
             ws.app = validApp;
+            ws.sendJson = (data) => {
+                if (ws.send(JSON.stringify(data))) {
+                    this.updateTimeout(ws);
+                }
+
+                this.server.metricsManager.markWsMessageSent(validApp.id, data);
+            }
 
             this.checkIfAppIsEnabled(ws).then(enabled => {
                 if (! enabled) {
@@ -115,15 +114,13 @@ export class WsHandler {
                     } else {
                         this.server.adapter.getNamespace(ws.app.id).addSocket(ws);
 
-                        const broadcastMessage = {
+                        ws.sendJson({
                             event: 'pusher:connection_established',
                             data: JSON.stringify({
                                 socket_id: ws.id,
                                 activity_timeout: 30,
                             }),
-                        };
-
-                        ws.sendJson(broadcastMessage);
+                        });
 
                         this.updateTimeout(ws);
 
@@ -260,7 +257,7 @@ export class WsHandler {
         let channelManager = this.getChannelManagerFor(channel);
 
         if (channel.length > this.server.options.channelLimits.maxNameLength) {
-            let broadcastMessage = {
+            ws.sendJson({
                 event: 'pusher:subscription_error',
                 channel,
                 data: {
@@ -268,9 +265,7 @@ export class WsHandler {
                     error: `The channel name is longer than the allowed ${this.server.options.channelLimits.maxNameLength} characters.`,
                     code: 4009,
                 },
-            };
-
-            ws.sendJson(broadcastMessage);
+            });
 
             return;
         }
@@ -317,12 +312,10 @@ export class WsHandler {
 
             // For non-presence channels, end with subscription succeeded.
             if (! (channelManager instanceof PresenceChannelManager)) {
-                let broadcastMessage = {
+                ws.sendJson({
                     event: 'pusher_internal:subscription_succeeded',
                     channel,
-                };
-
-                ws.sendJson(broadcastMessage);
+                });
 
                 return;
             }
@@ -333,7 +326,7 @@ export class WsHandler {
             let memberSizeInKb = Utils.dataToKilobytes(user_info);
 
             if (memberSizeInKb > this.server.options.presence.maxMemberSizeInKb) {
-                let broadcastMessage = {
+                ws.sendJson({
                     event: 'pusher:subscription_error',
                     channel,
                     data: {
@@ -341,9 +334,7 @@ export class WsHandler {
                         error: `The maximum size for a channel member is ${this.server.options.presence.maxMemberSizeInKb} KB.`,
                         code: 4301,
                     },
-                };
-
-                ws.sendJson(broadcastMessage);
+                });
 
                 return;
             }
@@ -356,7 +347,7 @@ export class WsHandler {
             this.server.adapter.getNamespace(ws.app.id).addSocket(ws);
 
             this.server.adapter.getChannelMembers(ws.app.id, channel, false).then(members => {
-                let broadcastMessage = {
+                ws.sendJson({
                     event: 'pusher_internal:subscription_succeeded',
                     channel,
                     data: JSON.stringify({
@@ -366,20 +357,18 @@ export class WsHandler {
                             count: members.size,
                         },
                     }),
-                };
-
-                ws.sendJson(broadcastMessage);
+                });
 
                 this.server.webhookSender.sendMemberAdded(ws.app, channel, member.user_id as string);
 
-                this.server.adapter.send(ws.app.id, channel, JSON.stringify({
+                this.server.adapter.send(ws.app.id, channel, {
                     event: 'pusher_internal:member_added',
                     channel,
                     data: JSON.stringify({
                         user_id: member.user_id,
                         user_info: member.user_info,
                     }),
-                }), ws.id);
+                }, ws.id);
             }).catch(err => {
                 Log.error(err);
 
@@ -411,13 +400,13 @@ export class WsHandler {
 
                     this.server.webhookSender.sendMemberRemoved(ws.app, channel, member.user_id);
 
-                    this.server.adapter.send(ws.app.id, channel, JSON.stringify({
+                    this.server.adapter.send(ws.app.id, channel, {
                         event: 'pusher_internal:member_removed',
                         channel,
                         data: JSON.stringify({
                             user_id: member.user_id,
                         }),
-                    }), ws.id);
+                    }, ws.id);
 
                     ws.presence.delete(channel);
                 }
@@ -514,7 +503,7 @@ export class WsHandler {
 
             this.server.rateLimiter.consumeFrontendEventPoints(1, ws.app, ws).then(response => {
                 if (response.canContinue) {
-                    this.server.adapter.send(ws.app.id, channel, JSON.stringify({ event, channel, data }), ws.id);
+                    this.server.adapter.send(ws.app.id, channel, { event, channel, data }, ws.id);
 
                     this.server.webhookSender.sendClientEvent(
                         ws.app,
