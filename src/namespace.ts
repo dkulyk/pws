@@ -1,5 +1,6 @@
 import { PresenceMember } from './presence-member';
 import { WebSocket } from 'uWebSockets.js';
+import { Log } from "./log";
 
 export class Namespace {
     /**
@@ -63,6 +64,9 @@ export class Namespace {
      * Return the total number of connections remaining to the channel.
      */
     async removeFromChannel(wsId: string, channel: string): Promise<number> {
+
+        Log.info(`channel(${channel}):${this.channels.has(channel) ? '1' : '0'} socket(${wsId}):${this.channels.get(channel)?.has(wsId) ? '1' : '0'}`);
+
         if (this.channels.has(channel)) {
             this.channels.get(channel).delete(wsId);
 
