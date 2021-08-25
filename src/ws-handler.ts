@@ -125,6 +125,12 @@ export class WsHandler {
 
                         ws.sendJson(broadcastMessage);
 
+                        this.updateTimeout(ws);
+
+                        if (this.server.options.debug) {
+                            Log.info(`${ws.app.id} ${ws.id} connection established`);
+                        }
+
                         this.server.metricsManager.markNewConnection(ws);
                     }
                 });
@@ -173,6 +179,10 @@ export class WsHandler {
             }
 
             this.clearTimeout(ws);
+
+            if (this.server.options.debug) {
+                Log.info(`${ws.app.id} ${ws.id} connection closed by ${code}`);
+            }
         });
     }
 
@@ -603,6 +613,9 @@ export class WsHandler {
         this.clearTimeout(ws);
 
         ws.timeout = setTimeout(() => {
+            if (this.server.options.debug) {
+                Log.info(`${ws.app.id} ${ws.id} connection timeout`);
+            }
             ws.end(1006);
         }, 120_000);
     }
